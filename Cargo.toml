@@ -2,8 +2,14 @@
 name = "hash_test"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Thomas Niederberger <thomas@niederb.ch>"]
+license = "MIT"
+description = "A tool to create art with hash algorithms"
+readme = "README.md"
+homepage = "https://github.com/niederb/hash_art"
+repository = "https://github.com/niederb/hash_art"
+keywords = ["hashing", "hash", "art", "cryptography"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 nalgebra = "0.32"
@@ -13,3 +19,4 @@ ndarray-rand = "0.14.0"
 image = "0.24.5"
 nshare = "0.9.0"
 imageproc = "0.23.0"
+clap = { version = "4.3.1", features = ["derive"] }

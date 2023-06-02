@@ -1,4 +1,5 @@
-use image::{DynamicImage, GenericImageView, ImageBuffer, Luma};
+use clap::Parser;
+use image::{ImageBuffer, Luma};
 use imageproc::map::map_colors;
 use ndarray::prelude::*;
 use ndarray_rand::rand_distr::Uniform;
@@ -9,16 +10,39 @@ use sha2::{Digest, Sha512};
 use std::time::Instant;
 
 const N: usize = 8;
-const MAX_ITERATIONS: i32 = 100;
 const DISTORTION: u8 = 2;
 
 type GrayscaleImage = ImageBuffer<Luma<u8>, Vec<u8>>;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Implicitly using `std::str::FromStr`
+    #[arg(short, long)]
+    input: std::path::PathBuf,
+
+    /// File to which the output image should be written
+    #[arg(short, long, default_value = "result.png")]
+    output: String,
+
+    /// The number of iterations to find a good approximation
+    #[arg(long, default_value_t = 100)]
+    iterations: u64,
+}
 
 trait BlockApproximator {
     fn approximate(&self, input: &ArrayView2<u8>, target: &ArrayView2<u8>) -> (f32, Array2<u8>);
 }
 
-struct Sha512CpuApproximator;
+struct Sha512CpuApproximator {
+    iterations: u64,
+}
+
+impl Sha512CpuApproximator {
+    fn new(iterations: u64) -> Self {
+        Sha512CpuApproximator { iterations }
+    }
+}
 
 impl BlockApproximator for Sha512CpuApproximator {
     fn approximate(&self, input: &ArrayView2<u8>, target: &ArrayView2<u8>) -> (f32, Array2<u8>) {
@@ -26,7 +50,7 @@ impl BlockApproximator for Sha512CpuApproximator {
 
         let mut error = f32::MAX;
 
-        for _ in 0..MAX_ITERATIONS {
+        for _ in 0..self.iterations {
             let delta: Array2<u8> = Array::random((N, N), Uniform::new(0, DISTORTION));
             let current_input = delta + input;
             let input_vec = current_input.as_slice().unwrap();
@@ -87,15 +111,20 @@ fn approximate_image(
 }
 
 fn main() {
-    let mut img = image::open("cat.jpg").unwrap();
-    let mut img = map_colors(&img, |p| Luma([p[0].checked_sub(DISTORTION).unwrap_or(0)]));
+    let args = Args::parse();
+    println!("{args:?}");
+    println!("Reading file: {:?}", args.input);
+
+    let img = image::open(args.input).unwrap();
+    let mut img = map_colors(&img, |p| Luma([p[0].saturating_sub(DISTORTION)]));
     let mut target = map_colors(&img, |p| Luma([255 - p[0]]));
 
     let now = Instant::now();
 
-    let approximator = Sha512CpuApproximator;
+    let approximator = Sha512CpuApproximator::new(args.iterations);
     let result = approximate_image(&mut img, &mut target, &approximator);
 
-    result.save("result.png").unwrap();
+    println!("Writing result to file: {}", args.output);
+    result.save(args.output).unwrap();
     println!("Execution time: {}ms", now.elapsed().as_millis());
 }
