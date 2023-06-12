@@ -19,15 +19,15 @@ type GrayscaleImage = ImageBuffer<Luma<u8>, Vec<u8>>;
 struct Args {
     /// Implicitly using `std::str::FromStr`
     #[arg(short, long)]
-    origin: std::path::PathBuf,
+    source: std::path::PathBuf,
 
     /// Implicitly using `std::str::FromStr`
     #[arg(short, long)]
     target: std::path::PathBuf,
 
     /// File to which the output image should be written
-    #[arg(long, default_value = "result-origin.jpg")]
-    result_origin: String,
+    #[arg(long, default_value = "result-source.jpg")]
+    result_source: String,
 
     /// File to which the output image should be written
     #[arg(long, default_value = "result-target.jpg")]
@@ -62,15 +62,15 @@ impl BlockApproximator for Sha512CpuApproximator {
         input: &ArrayView2<u8>,
         target: &ArrayView2<u8>,
     ) -> (f32, Array2<u8>, Array2<u8>) {
-        let mut best_origin = Array2::<u8>::zeros((N, N));
+        let mut best_source = Array2::<u8>::zeros((N, N));
         let mut best_target = Array2::<u8>::zeros((N, N));
 
         let mut error = f32::MAX;
 
         for _ in 0..self.iterations {
             let delta: Array2<u8> = Array::random((N, N), Uniform::new(0, DISTORTION));
-            let current_origin = delta + input;
-            let input_vec = current_origin.as_slice().unwrap();
+            let current_source = delta + input;
+            let input_vec = current_source.as_slice().unwrap();
             let mut hasher = Sha512::new();
             Update::update(&mut hasher, input_vec);
             let result = hasher.finalize();
@@ -86,12 +86,12 @@ impl BlockApproximator for Sha512CpuApproximator {
             }
 
             if error > total_error {
-                best_origin = current_origin;
+                best_source = current_source;
                 best_target = current_target;
                 error = total_error;
             }
         }
-        (error, best_origin, best_target)
+        (error, best_source, best_target)
     }
 }
 
@@ -100,7 +100,7 @@ fn approximate_image(
     target: &mut GrayscaleImage,
     approximator: &dyn BlockApproximator,
 ) -> (GrayscaleImage, GrayscaleImage) {
-    let mut result_origin = image::imageops::grayscale(input);
+    let mut result_source = image::imageops::grayscale(input);
     let mut result_target = image::imageops::grayscale(input);
     let dim = input.dimensions();
     let mut total_error = 0.0;
@@ -110,16 +110,16 @@ fn approximate_image(
             let input_block = image::imageops::crop(input, i * 8, j * 8, 8, 8).to_image();
             let target_block = image::imageops::crop(target, i * 8, j * 8, 8, 8).to_image();
 
-            let (error, origin, target) =
+            let (error, source, target) =
                 approximator.approximate(&input_block.ref_ndarray2(), &target_block.ref_ndarray2());
             total_error += error;
 
             for n in 0..8 {
                 for m in 0..8 {
-                    result_origin.put_pixel(
+                    result_source.put_pixel(
                         i * 8 + m,
                         j * 8 + n,
-                        image::Luma([origin[(n as usize, m as usize)]]),
+                        image::Luma([source[(n as usize, m as usize)]]),
                     );
                     result_target.put_pixel(
                         i * 8 + m,
@@ -131,22 +131,22 @@ fn approximate_image(
         }
     }
     println!("Total error: {total_error}");
-    (result_origin, result_target)
+    (result_source, result_target)
 }
 
 fn main() {
     let args = Args::parse();
     println!("{args:?}");
 
-    println!("Reading origin file: {:?}", args.origin);
-    let origin = image::open(args.origin).unwrap();
-    let mut origin = map_colors(&origin, |p| Luma([p[0].saturating_sub(DISTORTION)]));
+    println!("Reading source file: {:?}", args.source);
+    let source = image::open(args.source).unwrap();
+    let mut source = map_colors(&source, |p| Luma([p[0].saturating_sub(DISTORTION)]));
 
     println!("Reading target file: {:?}", args.target);
     let mut target = image::open(args.target).unwrap().to_luma8();
 
-    if target.dimensions() != origin.dimensions() {
-        println!("origin and target image must have same size");
+    if target.dimensions() != source.dimensions() {
+        println!("source and target image must have same size");
         return;
     }
 
@@ -157,10 +157,10 @@ fn main() {
 
     let now = Instant::now();
     let approximator = Sha512CpuApproximator::new(args.iterations);
-    let (result_origin, result_target) = approximate_image(&mut origin, &mut target, &approximator);
+    let (result_source, result_target) = approximate_image(&mut source, &mut target, &approximator);
 
-    println!("Writing result origin to file: {}", args.result_origin);
-    result_origin.save(args.result_origin).unwrap();
+    println!("Writing result source to file: {}", args.result_source);
+    result_source.save(args.result_source).unwrap();
     println!("Writing result target to file: {}", args.result_target);
     result_target.save(args.result_target).unwrap();
     println!("Execution time: {}ms", now.elapsed().as_millis());
