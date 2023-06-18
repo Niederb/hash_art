@@ -134,7 +134,12 @@ fn approximate_image(
     (result_source, result_target)
 }
 
+mod compute;
+
 fn main() {
+    env_logger::init();
+    pollster::block_on(compute::run());
+
     let args = Args::parse();
     println!("{args:?}");
 
