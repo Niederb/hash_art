@@ -2,15 +2,9 @@ use clap::Parser;
 use image::{ImageBuffer, Luma};
 use imageproc::map::map_colors;
 use ndarray::prelude::*;
-use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
 use nshare::RefNdarray2;
-use sha2::digest::Update;
-use sha2::{Digest, Sha512};
+use pollster::FutureExt as _;
 use std::time::Instant;
-
-const N: usize = 8;
-const DISTORTION: u8 = 2;
 
 type GrayscaleImage = ImageBuffer<Luma<u8>, Vec<u8>>;
 
@@ -38,67 +32,10 @@ struct Args {
     iterations: u64,
 }
 
-trait BlockApproximator {
-    fn approximate(
-        &self,
-        input: &ArrayView2<u8>,
-        target: &ArrayView2<u8>,
-    ) -> (f32, Array2<u8>, Array2<u8>);
-}
-
-struct Sha512CpuApproximator {
-    iterations: u64,
-}
-
-impl Sha512CpuApproximator {
-    fn new(iterations: u64) -> Self {
-        Sha512CpuApproximator { iterations }
-    }
-}
-
-impl BlockApproximator for Sha512CpuApproximator {
-    fn approximate(
-        &self,
-        input: &ArrayView2<u8>,
-        target: &ArrayView2<u8>,
-    ) -> (f32, Array2<u8>, Array2<u8>) {
-        let mut best_source = Array2::<u8>::zeros((N, N));
-        let mut best_target = Array2::<u8>::zeros((N, N));
-
-        let mut error = f32::MAX;
-
-        for _ in 0..self.iterations {
-            let delta: Array2<u8> = Array::random((N, N), Uniform::new(0, DISTORTION));
-            let current_source = delta + input;
-            let input_vec = current_source.as_slice().unwrap();
-            let mut hasher = Sha512::new();
-            Update::update(&mut hasher, input_vec);
-            let result = hasher.finalize();
-
-            let current_target = Array::from_iter(result).into_shape((N, N)).unwrap();
-
-            let mut total_error = 0.0;
-            for m in 0..N {
-                for n in 0..N {
-                    let val = target[[m, n]] as f32 - current_target[[m, n]] as f32;
-                    total_error += val * val;
-                }
-            }
-
-            if error > total_error {
-                best_source = current_source;
-                best_target = current_target;
-                error = total_error;
-            }
-        }
-        (error, best_source, best_target)
-    }
-}
-
 fn approximate_image(
     input: &mut GrayscaleImage,
     target: &mut GrayscaleImage,
-    approximator: &dyn BlockApproximator,
+    approximator: &dyn compute::BlockApproximator,
 ) -> (GrayscaleImage, GrayscaleImage) {
     let mut result_source = image::imageops::grayscale(input);
     let mut result_target = image::imageops::grayscale(input);
@@ -110,8 +47,9 @@ fn approximate_image(
             let input_block = image::imageops::crop(input, i * 8, j * 8, 8, 8).to_image();
             let target_block = image::imageops::crop(target, i * 8, j * 8, 8, 8).to_image();
 
-            let (error, source, target) =
-                approximator.approximate(&input_block.ref_ndarray2(), &target_block.ref_ndarray2());
+            let (error, source, target) = approximator
+                .approximate(&input_block.ref_ndarray2(), &target_block.ref_ndarray2())
+                .block_on();
             total_error += error;
 
             for n in 0..8 {
@@ -138,14 +76,17 @@ mod compute;
 
 fn main() {
     env_logger::init();
-    pollster::block_on(compute::run());
+    let numbers = vec![1, 2, 3, 4];
+    //pollster::block_on(compute::run(&numbers));
 
     let args = Args::parse();
     println!("{args:?}");
 
     println!("Reading source file: {:?}", args.source);
     let source = image::open(args.source).unwrap();
-    let mut source = map_colors(&source, |p| Luma([p[0].saturating_sub(DISTORTION)]));
+    let mut source = map_colors(&source, |p| {
+        Luma([p[0].saturating_sub(compute::DISTORTION)])
+    });
 
     println!("Reading target file: {:?}", args.target);
     let mut target = image::open(args.target).unwrap().to_luma8();
@@ -161,7 +102,7 @@ fn main() {
     }*/
 
     let now = Instant::now();
-    let approximator = Sha512CpuApproximator::new(args.iterations);
+    let approximator = compute::Sha512CpuApproximator::new(args.iterations);
     let (result_source, result_target) = approximate_image(&mut source, &mut target, &approximator);
 
     println!("Writing result source to file: {}", args.result_source);
