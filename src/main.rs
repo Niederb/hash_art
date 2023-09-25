@@ -1,3 +1,4 @@
+use crate::compute::N;
 use clap::Parser;
 use image::{ImageBuffer, Luma};
 use imageproc::map::map_colors;
@@ -42,26 +43,31 @@ fn approximate_image(
     let dim = input.dimensions();
     let mut total_error = 0.0;
     println!("image dimensions {:?}", dim);
-    for i in 0..(dim.0 / 8) {
-        for j in 0..(dim.1 / 8) {
-            let input_block = image::imageops::crop(input, i * 8, j * 8, 8, 8).to_image();
-            let target_block = image::imageops::crop(target, i * 8, j * 8, 8, 8).to_image();
+    for i in 0..(dim.0 / N as u32) {
+        for j in 0..(dim.1 / N as u32) {
+            let input_block =
+                image::imageops::crop(input, i * N as u32, j * N as u32, N as u32, N as u32)
+                    .to_image();
+            let target_block =
+                image::imageops::crop(target, i * N as u32, j * N as u32, N as u32, N as u32)
+                    .to_image();
 
+            println!("{i}/{j}");
             let (error, source, target) = approximator
                 .approximate(&input_block.ref_ndarray2(), &target_block.ref_ndarray2())
                 .block_on();
             total_error += error;
 
-            for n in 0..8 {
-                for m in 0..8 {
+            for n in 0..N as u32 {
+                for m in 0..N as u32 {
                     result_source.put_pixel(
-                        i * 8 + m,
-                        j * 8 + n,
+                        i * N as u32 + m,
+                        j * N as u32 + n,
                         image::Luma([source[(n as usize, m as usize)]]),
                     );
                     result_target.put_pixel(
-                        i * 8 + m,
-                        j * 8 + n,
+                        i * N as u32 + m,
+                        j * N as u32 + n,
                         image::Luma([target[(n as usize, m as usize)]]),
                     );
                 }
@@ -76,8 +82,6 @@ mod compute;
 
 fn main() {
     env_logger::init();
-    let numbers = vec![1, 2, 3, 4];
-    //pollster::block_on(compute::run(&numbers));
 
     let args = Args::parse();
     println!("{args:?}");
@@ -102,7 +106,8 @@ fn main() {
     }*/
 
     let now = Instant::now();
-    let approximator = compute::Sha512CpuApproximator::new(args.iterations);
+    //let approximator = compute::Sha512CpuApproximator::new(args.iterations);
+    let approximator = compute::WgpuApproximator::new();
     let (result_source, result_target) = approximate_image(&mut source, &mut target, &approximator);
 
     println!("Writing result source to file: {}", args.result_source);

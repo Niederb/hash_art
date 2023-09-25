@@ -19,7 +19,7 @@ pub trait BlockApproximator {
     ) -> (f32, Array2<u8>, Array2<u8>);
 }
 
-const N: usize = 8;
+pub const N: usize = 16;
 pub const DISTORTION: u8 = 2;
 
 pub struct Sha512CpuApproximator {
@@ -88,7 +88,8 @@ impl BlockApproximator for WgpuApproximator {
         target: &ArrayView2<u8>,
     ) -> (f32, Array2<u8>, Array2<u8>) {
         let vals = self.run(input.to_slice().unwrap()).await;
-        (0.0, input.to_owned(), target.to_owned())
+        let result = Array2::from_shape_vec((N, N), vals).unwrap();
+        (0.0, input.to_owned(), result)
     }
 }
 
